@@ -151,6 +151,12 @@ DLLEXPORT JSValue *jsNewPromiseCapability(JSContext *ctx, JSValue *resolving_fun
 
 DLLEXPORT void jsFree(JSContext *ctx, void *ptab);
 
+/* Live bytes and allocation count QuickJS is holding, for leak diagnostics and for checking
+   headroom against jsSetMemoryLimit. Reads JSMemoryUsage.malloc_size / malloc_count. */
+DLLEXPORT int64_t jsMallocSize(JSRuntime *rt);
+
+DLLEXPORT int64_t jsMallocCount(JSRuntime *rt);
+
 /* Null-terminated "0.16.2"-style version of the bundled quickjs-ng. */
 DLLEXPORT const char *jsQuickJSVersion(void);
 

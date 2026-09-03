@@ -318,4 +318,16 @@ DLLEXPORT JSValue *jsNewPromiseCapability(JSContext *ctx, JSValue *resolving_fun
 
 DLLEXPORT void jsFree(JSContext *ctx, void *ptab) { js_free(ctx, ptab); }
 
+DLLEXPORT int64_t jsMallocSize(JSRuntime *rt) {
+  JSMemoryUsage s;
+  JS_ComputeMemoryUsage(rt, &s);
+  return s.malloc_size;
+}
+
+DLLEXPORT int64_t jsMallocCount(JSRuntime *rt) {
+  JSMemoryUsage s;
+  JS_ComputeMemoryUsage(rt, &s);
+  return s.malloc_count;
+}
+
 DLLEXPORT const char *jsQuickJSVersion(void) { return JS_GetVersion(); }

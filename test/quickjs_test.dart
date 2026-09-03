@@ -66,6 +66,70 @@ void main() {
     expect(resolved.stringResult, '42');
   });
 
+  // Upstream abner/flutter_js#182 reports a leak on repeated failing evaluations. QuickJS's
+  // own allocator accounting says otherwise: error results carry no owned reference, so the
+  // three common failure shapes settle flat.
+  test('repeated failing evaluations do not grow the runtime', () {
+    for (final script in const [
+      'function ( { bad syntax %%%', // SyntaxError
+      'null.foo.bar', // runtime TypeError
+      'function a(){ throw new Error("boom ".repeat(60)); } a();',
+    ]) {
+      final rt = QuickJsRuntime2();
+      for (var i = 0; i < 100; i++) {
+        expect(rt.evaluate(script).isError, isTrue);
+      }
+      final baseline = rt.memoryUsage;
+      for (var i = 0; i < 2000; i++) {
+        rt.evaluate(script);
+      }
+      expect(rt.memoryUsage, baseline, reason: 'leaked on: $script');
+      rt.dispose();
+    }
+  });
+
+  // A function-valued result hands the caller a JSRef it owns. Freeing it settles the runtime;
+  // dropping it grows the runtime without bound, which is the real "grows until it crashes"
+  // shape on a long-lived runtime.
+  test('function-valued results must be freed by the caller', () {
+    final freed = QuickJsRuntime2();
+    for (var i = 0; i < 100; i++) {
+      JSRef.freeRecursive(freed.evaluate('(function(){ return 1; })').rawResult);
+    }
+    final baseline = freed.memoryUsage;
+    for (var i = 0; i < 2000; i++) {
+      JSRef.freeRecursive(freed.evaluate('(function(){ return 1; })').rawResult);
+    }
+    expect(freed.memoryUsage, baseline);
+    freed.dispose();
+
+    final dropped = QuickJsRuntime2();
+    for (var i = 0; i < 100; i++) {
+      dropped.evaluate('(function(){ return 1; })');
+    }
+    final droppedBaseline = dropped.memoryUsage;
+    for (var i = 0; i < 2000; i++) {
+      dropped.evaluate('(function(){ return 1; })');
+    }
+    expect(dropped.memoryUsage, greaterThan(droppedBaseline),
+        reason: 'documents the ownership contract; not a desired behaviour');
+    dropped.dispose();
+  });
+
+  // moodiary's sandbox builds and disposes a runtime per call, so teardown has to stay safe
+  // even when the caller never frees a returned JSRef. jsFreeRuntime raises the leak report as
+  // a bare String, close() converts it to a JSError, and dispose() swallows that.
+  test('dispose() is safe when the caller leaks a JSRef', () {
+    final leaky = QuickJsRuntime2();
+    expect(leaky.evaluate('(function(){ return 1; })').rawResult, isNotNull);
+    expect(leaky.dispose, returnsNormally);
+
+    final nested = QuickJsRuntime2();
+    expect(nested.evaluate('({ handler: function(){}, name: "x" })').rawResult,
+        isA<Map>());
+    expect(nested.dispose, returnsNormally);
+  });
+
   test('exposes a Dart function to JS through a channel', () {
     runtime.onMessage('greet', (dynamic args) => 'hi ${args[0]}');
     final result = runtime.evaluate(

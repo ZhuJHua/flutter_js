@@ -122,6 +122,14 @@ abstract base class JSRuntime extends Opaque {}
 abstract base class JSPropertyEnum extends Opaque {}
 
 /// DLLEXPORT JSValue *jsThrow(JSContext *ctx, JSValue *obj)
+/// DLLEXPORT int64_t jsMallocSize(JSRuntime *rt)
+@Native<Int64 Function(Pointer<JSRuntime>)>(symbol: 'jsMallocSize')
+external int jsMallocSize(Pointer<JSRuntime> rt);
+
+/// DLLEXPORT int64_t jsMallocCount(JSRuntime *rt)
+@Native<Int64 Function(Pointer<JSRuntime>)>(symbol: 'jsMallocCount')
+external int jsMallocCount(Pointer<JSRuntime> rt);
+
 @Native<Pointer<Utf8> Function()>(symbol: 'jsQuickJSVersion')
 external Pointer<Utf8> _jsQuickJSVersion();
 

@@ -56,6 +56,22 @@ class QuickJsRuntime2 extends JavascriptRuntime {
     init();
   }
 
+  /// Bytes QuickJS currently has allocated for this runtime -- the same figure [memoryLimit]
+  /// is checked against. 0 before the engine is created and after [close].
+  ///
+  /// Useful for leak-hunting: run a workload in a loop and watch whether this settles or grows.
+  int get memoryUsage {
+    final rt = _rt;
+    return rt == null ? 0 : jsMallocSize(rt);
+  }
+
+  /// Number of live QuickJS allocations. Grows alongside [memoryUsage]; a rising count with
+  /// flat usage points at many small blocks rather than a few large ones.
+  int get allocationCount {
+    final rt = _rt;
+    return rt == null ? 0 : jsMallocCount(rt);
+  }
+
   void _ensureEngine() {
     if (_rt != null) return;
     final rt = jsNewRuntime((ctx, type, ptr) {
