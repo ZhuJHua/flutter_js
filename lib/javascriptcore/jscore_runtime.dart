@@ -17,6 +17,7 @@ class JavascriptCoreRuntime extends JavascriptRuntime {
   late JSContext context;
   late Pointer _globalObject;
 
+  @override
   int executePendingJob() {
     evaluate('(function(){})();');
     return 0;
@@ -204,9 +205,7 @@ class JavascriptCoreRuntime extends JavascriptRuntime {
 
   Pointer<NativeType> _constructPromiseFor(Future future) {
     final id = future.hashCode;
-    Pointer<Utf8> scriptCString = ('var __JSC_promise_result$id = {};' +
-            'new Promise(function(resolve, reject) { __JSC_promise_result$id.resolve = resolve;' +
-            ' __JSC_promise_result$id.reject = reject;});')
+    Pointer<Utf8> scriptCString = ('var __JSC_promise_result$id = {};' 'new Promise(function(resolve, reject) { __JSC_promise_result$id.resolve = resolve;' ' __JSC_promise_result$id.reject = reject;});')
         .toNativeUtf8();
 
     var jsValueRef = jSEvaluateScript(

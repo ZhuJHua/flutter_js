@@ -10,14 +10,10 @@ import './extensions/handle_promises.dart';
 import './quickjs/quickjs_runtime2.dart';
 
 export './extensions/handle_promises.dart';
-//import 'package:flutter_js/quickjs-sync-server/quickjs_oasis_jsbridge.dart';
-//import 'package:flutter_js/quickjs/quickjs_runtime.dart';
 
-export './quickjs/quickjs_runtime.dart';
 export './quickjs/quickjs_runtime2.dart';
 export 'javascript_runtime.dart';
 export 'js_eval_result.dart';
-export 'quickjs-sync-server/quickjs_oasis_jsbridge.dart';
 
 // import condicional to not import ffi libraries when using web as target
 // import "something.dart" if (dart.library.io) "other.dart";
@@ -98,7 +94,7 @@ class FlutterJs {
 
   int? get id => _engineId;
 
-  Map<String, FlutterJsChannelCallbak> _channels = {};
+  final Map<String, FlutterJsChannelCallbak> _channels = {};
 
   FlutterJs() {
     _engineCount += 1;
@@ -107,11 +103,11 @@ class FlutterJs {
     _engineMap[_engineId] = this;
   }
 
-  dispose() {
+  void dispose() {
     FlutterJs.close(_engineId);
   }
 
-  addChannel(String name, FlutterJsChannelCallbak fn,
+  void addChannel(String name, FlutterJsChannelCallbak fn,
       {String? dartChannelAddress}) {
     _channels[name] = fn;
     _methodChannel.invokeMethod(

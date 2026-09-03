@@ -20,10 +20,9 @@ void main() {
 
   test('evaluate javascript', () {
     final result = jsRuntime.evaluate('Math.pow(5,3)');
-    print('${result.rawResult}, ${result.stringResult}');
-    print(
-        '${result.rawResult.runtimeType}, ${result.stringResult.runtimeType}');
-    expect(result.rawResult, equals(125));
+    // `rawResult` is engine-specific: QuickJS converts it to a Dart value, JavaScriptCore
+    // hands back the raw JSValueRef. Only `stringResult` is contracted across both, so the
+    // converted-value assertion lives in `quickjs_test.dart` instead.
     expect(result.stringResult, equals('125'));
   });
 
@@ -37,16 +36,16 @@ void main() {
     jsRt.evaluate('''
     async function asyncTest(del = 30) {
       try {
-        console.log(`Starting \$\{del\}...`);
+        console.log(`Starting \${del}...`);
         while (del > 0) {
           console.log(del);
           await delay(1000);
           del--;
         }
-        console.log(`Done \$\{del\}`);
-        return `Done \$\{del\}`;
+        console.log(`Done \${del}`);
+        return `Done \${del}`;
       } catch (e) {
-        console.log(`Error in asyncTest: \$\{e\}`);
+        console.log(`Error in asyncTest: \${e}`);
         return "Error";
       }
     }

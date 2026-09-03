@@ -16,7 +16,7 @@ final class Utf8NullTerminated extends Struct {
     final buffer = ptr.cast<Uint8>().asTypedList(bytes.length + 1);
     buffer.setAll(0, bytes);
     // Add the terminator '\0'
-    ptr.elementAt(bytes.length).ref.char = 0;
+    (ptr + bytes.length).ref.char = 0;
     return ptr;
   }
 
@@ -24,7 +24,7 @@ final class Utf8NullTerminated extends Struct {
     final List<int> bytes = [];
     var len = 0;
     while (true) {
-      final char = ptr.elementAt(len++).ref.char;
+      final char = (ptr + len++).ref.char;
       if (char == 0) break;
       bytes.add(char);
     }

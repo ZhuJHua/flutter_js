@@ -1,12 +1,13 @@
 /*
- * @Description: ffi
- * @Author: ekibun
- * @Date: 2020-09-19 10:29:04
- * @LastEditors: ekibun
- * @LastEditTime: 2020-12-02 11:14:35
+ * QuickJS bindings.
+ *
+ * Originally from https://github.com/ekibun/flutter_qjs (MIT); the native library is now built
+ * from `src/` by `hook/build.dart` and resolved as a code asset rather than dlopen'd.
  */
+@DefaultAsset('package:flutter_js/quickjs/ffi.dart')
+library;
+
 import 'dart:ffi';
-import 'dart:io';
 import 'dart:isolate';
 import 'package:ffi/ffi.dart';
 
@@ -47,11 +48,13 @@ abstract class JSRef {
     Set? cache,
   ]) {
     if (obj == null) return;
-    if (cache == null) cache = Set();
+    cache ??= <dynamic>{};
     if (cache.contains(obj)) return;
     if (obj is List) {
       cache.add(obj);
-      List.from(obj).forEach((e) => _callRecursive(e, cb, cache));
+      for (var e in List.from(obj)) {
+        _callRecursive(e, cb, cache);
+      }
     }
     if (obj is Map) {
       cache.add(obj);
@@ -84,13 +87,17 @@ class JSProp {
   static const C_W_E = (CONFIGURABLE | WRITABLE | ENUMERABLE);
 }
 
+/// Mirrors the tag enum in `src/quickjs/quickjs.h`.
+///
+/// quickjs-ng renumbered these relative to the 2021-03-27 QuickJS this package used to bundle:
+/// `BIG_FLOAT`/`BIG_DECIMAL` are gone, `STRING_ROPE` and `SHORT_BIG_INT` are new, and
+/// `FLOAT64` moved from 7 to 8. Keep this in sync when re-vendoring quickjs.
 class JSTag {
-  static const FIRST = -11; /* first negative tag */
-  static const BIG_DECIMAL = -11;
-  static const BIG_INT = -10;
-  static const BIG_FLOAT = -9;
+  static const FIRST = -9; /* first negative tag */
+  static const BIG_INT = -9;
   static const SYMBOL = -8;
   static const STRING = -7;
+  static const STRING_ROPE = -6;
   static const MODULE = -3; /* used internally */
   static const FUNCTION_BYTECODE = -2; /* used internally */
   static const OBJECT = -1;
@@ -102,7 +109,8 @@ class JSTag {
   static const UNINITIALIZED = 4;
   static const CATCH_OFFSET = 5;
   static const EXCEPTION = 6;
-  static const FLOAT64 = 7;
+  static const SHORT_BIG_INT = 7;
+  static const FLOAT64 = 8;
 }
 
 abstract base class JSValue extends Opaque {}
@@ -113,45 +121,26 @@ abstract base class JSRuntime extends Opaque {}
 
 abstract base class JSPropertyEnum extends Opaque {}
 
-final DynamicLibrary _qjsLib = Platform.environment['FLUTTER_TEST'] == 'true'
-    ? (Platform.isWindows
-        ? DynamicLibrary.open('quickjs_c_bridge.dll')
-        : Platform.isMacOS
-            ? DynamicLibrary.process()
-            : DynamicLibrary.open(
-                Platform.environment['LIBQUICKJSC_TEST_PATH'] ??
-                    'libquickjs_c_bridge_plugin.so'))
-    : (Platform.isWindows
-        ? DynamicLibrary.open('quickjs_c_bridge.dll')
-        : (Platform.isLinux
-            ? DynamicLibrary.open(Platform.environment['LIBQUICKJSC_PATH'] ??
-                'libquickjs_c_bridge_plugin.so')
-            : (Platform.isAndroid
-                ? DynamicLibrary.open('libfastdev_quickjs_runtime.so')
-                : DynamicLibrary.process())));
-
 /// DLLEXPORT JSValue *jsThrow(JSContext *ctx, JSValue *obj)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> obj,
-) jsThrow = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsThrow')
-    .asFunction();
+@Native<Pointer<Utf8> Function()>(symbol: 'jsQuickJSVersion')
+external Pointer<Utf8> _jsQuickJSVersion();
+
+/// Version of the bundled quickjs-ng engine, e.g. `0.16.2`.
+///
+/// Reads it out of the compiled library rather than a Dart constant, so it cannot drift from
+/// what is actually linked in.
+String get quickJsVersion => _jsQuickJSVersion().toDartString();
+
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsThrow')
+external Pointer<JSValue> jsThrow(Pointer<JSContext> ctx, Pointer<JSValue> obj);
 
 /// JSValue *jsEXCEPTION()
-final Pointer<JSValue> Function() jsEXCEPTION = _qjsLib
-    .lookup<NativeFunction<Pointer<JSValue> Function()>>('jsEXCEPTION')
-    .asFunction();
+@Native<Pointer<JSValue> Function()>(symbol: 'jsEXCEPTION')
+external Pointer<JSValue> jsEXCEPTION();
 
 /// JSValue *jsUNDEFINED()
-final Pointer<JSValue> Function() jsUNDEFINED = _qjsLib
-    .lookup<NativeFunction<Pointer<JSValue> Function()>>('jsUNDEFINED')
-    .asFunction();
+@Native<Pointer<JSValue> Function()>(symbol: 'jsUNDEFINED')
+external Pointer<JSValue> jsUNDEFINED();
 
 typedef _JSChannel = Pointer<JSValue> Function(
     Pointer<JSContext> ctx, int method, Pointer<JSValue> argv);
@@ -159,21 +148,12 @@ typedef _JSChannelNative = Pointer<JSValue> Function(
     Pointer<JSContext> ctx, IntPtr method, Pointer<JSValue> argv);
 
 /// JSRuntime *jsNewRuntime(JSChannel channel)
-final Pointer<JSRuntime> Function(
-  Pointer<NativeFunction<_JSChannelNative>>,
-  int,
-) _jsNewRuntime = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSRuntime> Function(
-              Pointer<NativeFunction<_JSChannelNative>>,
-              Int64,
-            )>>('jsNewRuntime')
-    .asFunction();
+@Native<Pointer<JSRuntime> Function(Pointer<NativeFunction<_JSChannelNative>>, Int64)>(symbol: 'jsNewRuntime')
+external Pointer<JSRuntime> _jsNewRuntime(Pointer<NativeFunction<_JSChannelNative>> a0, int a1);
 
 class _RuntimeOpaque {
   final _JSChannel _channel;
-  List<JSRef> _ref = [];
+  final List<JSRef> _ref = [];
   final ReceivePort _port;
   int? _dartObjectClassId;
   _RuntimeOpaque(this._channel, this._port);
@@ -189,7 +169,7 @@ class _RuntimeOpaque {
   }
 }
 
-final Map<Pointer<JSRuntime>, _RuntimeOpaque> runtimeOpaques = Map();
+final Map<Pointer<JSRuntime>, _RuntimeOpaque> runtimeOpaques = {};
 
 Pointer<JSValue> channelDispacher(
   Pointer<JSContext> ctx,
@@ -213,41 +193,16 @@ Pointer<JSRuntime> jsNewRuntime(
 }
 
 /// DLLEXPORT void jsSetMaxStackSize(JSRuntime *rt, size_t stack_size)
-final void Function(
-  Pointer<JSRuntime>,
-  int,
-) jsSetMaxStackSize = _qjsLib
-    .lookup<
-        NativeFunction<
-            Void Function(
-              Pointer<JSRuntime>,
-              IntPtr,
-            )>>('jsSetMaxStackSize')
-    .asFunction();
+@Native<Void Function(Pointer<JSRuntime>, IntPtr)>(symbol: 'jsSetMaxStackSize')
+external void jsSetMaxStackSize(Pointer<JSRuntime> a0, int a1);
 
 /// DLLEXPORT void jsSetMemoryLimit(JSRuntime *rt, size_t limit);
-final void Function(
-  Pointer<JSRuntime>,
-  int,
-) jsSetMemoryLimit = _qjsLib
-    .lookup<
-        NativeFunction<
-            Void Function(
-              Pointer<JSRuntime>,
-              IntPtr,
-            )>>('jsSetMemoryLimit')
-    .asFunction();
+@Native<Void Function(Pointer<JSRuntime>, IntPtr)>(symbol: 'jsSetMemoryLimit')
+external void jsSetMemoryLimit(Pointer<JSRuntime> a0, int a1);
 
 /// void jsFreeRuntime(JSRuntime *rt)
-final void Function(
-  Pointer<JSRuntime>,
-) _jsFreeRuntime = _qjsLib
-    .lookup<
-        NativeFunction<
-            Void Function(
-              Pointer<JSRuntime>,
-            )>>('jsFreeRuntime')
-    .asFunction();
+@Native<Void Function(Pointer<JSRuntime>)>(symbol: 'jsFreeRuntime')
+external void _jsFreeRuntime(Pointer<JSRuntime> a0);
 
 void jsFreeRuntime(
   Pointer<JSRuntime> rt,
@@ -263,42 +218,25 @@ void jsFreeRuntime(
     while (opaque._ref.isNotEmpty) {
       final ref = opaque._ref.first;
       final objStrs = ref.toString().split('\n');
-      final objStr = objStrs.length > 0 ? objStrs[0] + " ..." : objStrs[0];
+      final objStr = objStrs.isNotEmpty ? "${objStrs[0]} ..." : objStrs[0];
       referenceleak.add(
           "  ${identityHashCode(ref)}\t${ref._refCount + 1}\t${ref.runtimeType.toString()}\t$objStr");
       ref.destroy();
     }
   }
   _jsFreeRuntime(rt);
-  if (referenceleak.length > 0) {
-    throw ('reference leak:\n    ADDR\tREF\tTYPE\tPROP\n' +
-        referenceleak.join('\n'));
+  if (referenceleak.isNotEmpty) {
+    throw ('reference leak:\n    ADDR\tREF\tTYPE\tPROP\n${referenceleak.join('\n')}');
   }
 }
 
 /// JSValue *jsNewCFunction(JSContext *ctx, JSValue *funcData)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> funcData,
-) jsNewCFunction = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsNewCFunction')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsNewCFunction')
+external Pointer<JSValue> jsNewCFunction(Pointer<JSContext> ctx, Pointer<JSValue> funcData);
 
 /// JSContext *jsNewContext(JSRuntime *rt)
-final Pointer<JSContext> Function(
-  Pointer<JSRuntime> rt,
-) _jsNewContext = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSContext> Function(
-              Pointer<JSRuntime>,
-            )>>('jsNewContext')
-    .asFunction();
+@Native<Pointer<JSContext> Function(Pointer<JSRuntime>)>(symbol: 'jsNewContext')
+external Pointer<JSContext> _jsNewContext(Pointer<JSRuntime> rt);
 
 Pointer<JSContext> jsNewContext(Pointer<JSRuntime> rt) {
   final ctx = _jsNewContext(rt);
@@ -310,45 +248,16 @@ Pointer<JSContext> jsNewContext(Pointer<JSRuntime> rt) {
 }
 
 /// void jsFreeContext(JSContext *ctx)
-final void Function(
-  Pointer<JSContext>,
-) jsFreeContext = _qjsLib
-    .lookup<
-        NativeFunction<
-            Void Function(
-              Pointer<JSContext>,
-            )>>('jsFreeContext')
-    .asFunction();
+@Native<Void Function(Pointer<JSContext>)>(symbol: 'jsFreeContext')
+external void jsFreeContext(Pointer<JSContext> a0);
 
 /// JSRuntime *jsGetRuntime(JSContext *ctx)
-final Pointer<JSRuntime> Function(
-  Pointer<JSContext>,
-) jsGetRuntime = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSRuntime> Function(
-              Pointer<JSContext>,
-            )>>('jsGetRuntime')
-    .asFunction();
+@Native<Pointer<JSRuntime> Function(Pointer<JSContext>)>(symbol: 'jsGetRuntime')
+external Pointer<JSRuntime> jsGetRuntime(Pointer<JSContext> a0);
 
 /// JSValue *jsEval(JSContext *ctx, const char *input, size_t input_len, const char *filename, int eval_flags)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  Pointer<Utf8> input,
-  int inputLen,
-  Pointer<Utf8> filename,
-  int evalFlags,
-) _jsEval = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Pointer<Utf8>,
-              IntPtr,
-              Pointer<Utf8>,
-              Int32,
-            )>>('jsEval')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Pointer<Utf8>, IntPtr, Pointer<Utf8>, Int32)>(symbol: 'jsEval')
+external Pointer<JSValue> _jsEval(Pointer<JSContext> ctx, Pointer<Utf8> input, int inputLen, Pointer<Utf8> filename, int evalFlags);
 
 Pointer<JSValue> jsEval(
   Pointer<JSContext> ctx,
@@ -372,89 +281,32 @@ Pointer<JSValue> jsEval(
 }
 
 /// DLLEXPORT int32_t jsValueGetTag(JSValue *val)
-final int Function(
-  Pointer<JSValue> val,
-) jsValueGetTag = _qjsLib
-    .lookup<
-        NativeFunction<
-            Int32 Function(
-              Pointer<JSValue>,
-            )>>('jsValueGetTag')
-    .asFunction();
+@Native<Int32 Function(Pointer<JSValue>)>(symbol: 'jsValueGetTag')
+external int jsValueGetTag(Pointer<JSValue> val);
 
 /// void *jsValueGetPtr(JSValue *val)
-final int Function(
-  Pointer<JSValue> val,
-) jsValueGetPtr = _qjsLib
-    .lookup<
-        NativeFunction<
-            IntPtr Function(
-              Pointer<JSValue>,
-            )>>('jsValueGetPtr')
-    .asFunction();
+@Native<IntPtr Function(Pointer<JSValue>)>(symbol: 'jsValueGetPtr')
+external int jsValueGetPtr(Pointer<JSValue> val);
 
 /// DLLEXPORT bool jsTagIsFloat64(int32_t tag)
-final int Function(
-  int val,
-) jsTagIsFloat64 = _qjsLib
-    .lookup<
-        NativeFunction<
-            Int32 Function(
-              Int32,
-            )>>('jsTagIsFloat64')
-    .asFunction();
+@Native<Int32 Function(Int32)>(symbol: 'jsTagIsFloat64')
+external int jsTagIsFloat64(int val);
 
 /// JSValue *jsNewBool(JSContext *ctx, int val)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  int val,
-) jsNewBool = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Int32,
-            )>>('jsNewBool')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Int32)>(symbol: 'jsNewBool')
+external Pointer<JSValue> jsNewBool(Pointer<JSContext> ctx, int val);
 
 /// JSValue *jsNewInt64(JSContext *ctx, int64_t val)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  int val,
-) jsNewInt64 = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Int64,
-            )>>('jsNewInt64')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Int64)>(symbol: 'jsNewInt64')
+external Pointer<JSValue> jsNewInt64(Pointer<JSContext> ctx, int val);
 
 /// JSValue *jsNewFloat64(JSContext *ctx, double val)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  double val,
-) jsNewFloat64 = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Double,
-            )>>('jsNewFloat64')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Double)>(symbol: 'jsNewFloat64')
+external Pointer<JSValue> jsNewFloat64(Pointer<JSContext> ctx, double val);
 
 /// JSValue *jsNewString(JSContext *ctx, const char *str)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  Pointer<Utf8> str,
-) _jsNewString = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Pointer<Utf8>,
-            )>>('jsNewString')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Pointer<Utf8>)>(symbol: 'jsNewString')
+external Pointer<JSValue> _jsNewString(Pointer<JSContext> ctx, Pointer<Utf8> str);
 
 Pointer<JSValue> jsNewString(
   Pointer<JSContext> ctx,
@@ -467,56 +319,20 @@ Pointer<JSValue> jsNewString(
 }
 
 /// JSValue *jsNewArrayBufferCopy(JSContext *ctx, const uint8_t *buf, size_t len)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  Pointer<Uint8> buf,
-  int len,
-) jsNewArrayBufferCopy = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Pointer<Uint8>,
-              IntPtr,
-            )>>('jsNewArrayBufferCopy')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Pointer<Uint8>, IntPtr)>(symbol: 'jsNewArrayBufferCopy')
+external Pointer<JSValue> jsNewArrayBufferCopy(Pointer<JSContext> ctx, Pointer<Uint8> buf, int len);
 
 /// JSValue *jsNewArray(JSContext *ctx)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-) jsNewArray = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-            )>>('jsNewArray')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>)>(symbol: 'jsNewArray')
+external Pointer<JSValue> jsNewArray(Pointer<JSContext> ctx);
 
 /// JSValue *jsNewObject(JSContext *ctx)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-) jsNewObject = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-            )>>('jsNewObject')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>)>(symbol: 'jsNewObject')
+external Pointer<JSValue> jsNewObject(Pointer<JSContext> ctx);
 
 /// void jsFreeValue(JSContext *ctx, JSValue *val, int32_t free)
-final void Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> val,
-  int free,
-) _jsFreeValue = _qjsLib
-    .lookup<
-        NativeFunction<
-            Void Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-              Int32,
-            )>>('jsFreeValue')
-    .asFunction();
+@Native<Void Function(Pointer<JSContext>, Pointer<JSValue>, Int32)>(symbol: 'jsFreeValue')
+external void _jsFreeValue(Pointer<JSContext> ctx, Pointer<JSValue> val, int free);
 
 void jsFreeValue(
   Pointer<JSContext> ctx,
@@ -527,19 +343,8 @@ void jsFreeValue(
 }
 
 /// void jsFreeValue(JSRuntime *rt, JSValue *val, int32_t free)
-final void Function(
-  Pointer<JSRuntime> rt,
-  Pointer<JSValue> val,
-  int free,
-) _jsFreeValueRT = _qjsLib
-    .lookup<
-        NativeFunction<
-            Void Function(
-              Pointer<JSRuntime>,
-              Pointer<JSValue>,
-              Int32,
-            )>>('jsFreeValueRT')
-    .asFunction();
+@Native<Void Function(Pointer<JSRuntime>, Pointer<JSValue>, Int32)>(symbol: 'jsFreeValueRT')
+external void _jsFreeValueRT(Pointer<JSRuntime> rt, Pointer<JSValue> val, int free);
 
 void jsFreeValueRT(
   Pointer<JSRuntime> rt,
@@ -550,95 +355,32 @@ void jsFreeValueRT(
 }
 
 /// JSValue *jsDupValue(JSContext *ctx, JSValueConst *v)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> val,
-) jsDupValue = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsDupValue')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsDupValue')
+external Pointer<JSValue> jsDupValue(Pointer<JSContext> ctx, Pointer<JSValue> val);
 
 /// JSValue *jsDupValueRT(JSRuntime *rt, JSValue *v)
-final Pointer<JSValue> Function(
-  Pointer<JSRuntime> rt,
-  Pointer<JSValue> val,
-) jsDupValueRT = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSRuntime>,
-              Pointer<JSValue>,
-            )>>('jsDupValueRT')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSRuntime>, Pointer<JSValue>)>(symbol: 'jsDupValueRT')
+external Pointer<JSValue> jsDupValueRT(Pointer<JSRuntime> rt, Pointer<JSValue> val);
 
 /// int32_t jsToBool(JSContext *ctx, JSValueConst *val)
-final int Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> val,
-) jsToBool = _qjsLib
-    .lookup<
-        NativeFunction<
-            Int32 Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsToBool')
-    .asFunction();
+@Native<Int32 Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsToBool')
+external int jsToBool(Pointer<JSContext> ctx, Pointer<JSValue> val);
 
 /// int64_t jsToFloat64(JSContext *ctx, JSValueConst *val)
-final int Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> val,
-) jsToInt64 = _qjsLib
-    .lookup<
-        NativeFunction<
-            Int64 Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsToInt64')
-    .asFunction();
+@Native<Int64 Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsToInt64')
+external int jsToInt64(Pointer<JSContext> ctx, Pointer<JSValue> val);
 
 /// double jsToFloat64(JSContext *ctx, JSValueConst *val)
-final double Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> val,
-) jsToFloat64 = _qjsLib
-    .lookup<
-        NativeFunction<
-            Double Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsToFloat64')
-    .asFunction();
+@Native<Double Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsToFloat64')
+external double jsToFloat64(Pointer<JSContext> ctx, Pointer<JSValue> val);
 
 /// const char *jsToCString(JSContext *ctx, JSValue *val)
-final Pointer<Utf8> Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> val,
-) _jsToCString = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<Utf8> Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsToCString')
-    .asFunction();
+@Native<Pointer<Utf8> Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsToCString')
+external Pointer<Utf8> _jsToCString(Pointer<JSContext> ctx, Pointer<JSValue> val);
 
 /// void jsFreeCString(JSContext *ctx, const char *ptr)
-final void Function(
-  Pointer<JSContext> ctx,
-  Pointer<Utf8> val,
-) jsFreeCString = _qjsLib
-    .lookup<
-        NativeFunction<
-            Void Function(
-              Pointer<JSContext>,
-              Pointer<Utf8>,
-            )>>('jsFreeCString')
-    .asFunction();
+@Native<Void Function(Pointer<JSContext>, Pointer<Utf8>)>(symbol: 'jsFreeCString')
+external void jsFreeCString(Pointer<JSContext> ctx, Pointer<Utf8> val);
 
 String jsToCString(
   Pointer<JSContext> ctx,
@@ -652,17 +394,8 @@ String jsToCString(
 }
 
 /// DLLEXPORT uint32_t jsNewClass(JSContext *ctx, const char *name)
-final int Function(
-  Pointer<JSContext> ctx,
-  Pointer<Utf8> name,
-) _jsNewClass = _qjsLib
-    .lookup<
-        NativeFunction<
-            Uint32 Function(
-              Pointer<JSContext>,
-              Pointer<Utf8>,
-            )>>('jsNewClass')
-    .asFunction();
+@Native<Uint32 Function(Pointer<JSContext>, Pointer<Utf8>)>(symbol: 'jsNewClass')
+external int _jsNewClass(Pointer<JSContext> ctx, Pointer<Utf8> name);
 
 int jsNewClass(
   Pointer<JSContext> ctx,
@@ -678,260 +411,82 @@ int jsNewClass(
 }
 
 /// DLLEXPORT JSValue *jsNewObjectClass(JSContext *ctx, uint32_t QJSClassId, void *opaque)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  int classId,
-  int opaque,
-) jsNewObjectClass = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Uint32,
-              IntPtr,
-            )>>('jsNewObjectClass')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Uint32, IntPtr)>(symbol: 'jsNewObjectClass')
+external Pointer<JSValue> jsNewObjectClass(Pointer<JSContext> ctx, int classId, int opaque);
 
 /// DLLEXPORT void *jsGetObjectOpaque(JSValue *obj, uint32_t classid)
-final int Function(
-  Pointer<JSValue> obj,
-  int classid,
-) jsGetObjectOpaque = _qjsLib
-    .lookup<
-        NativeFunction<
-            IntPtr Function(
-              Pointer<JSValue>,
-              Uint32,
-            )>>('jsGetObjectOpaque')
-    .asFunction();
+@Native<IntPtr Function(Pointer<JSValue>, Uint32)>(symbol: 'jsGetObjectOpaque')
+external int jsGetObjectOpaque(Pointer<JSValue> obj, int classid);
 
 /// uint8_t *jsGetArrayBuffer(JSContext *ctx, size_t *psize, JSValueConst *obj)
-final Pointer<Uint8> Function(
-  Pointer<JSContext> ctx,
-  Pointer<IntPtr> psize,
-  Pointer<JSValue> val,
-) jsGetArrayBuffer = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<Uint8> Function(
-              Pointer<JSContext>,
-              Pointer<IntPtr>,
-              Pointer<JSValue>,
-            )>>('jsGetArrayBuffer')
-    .asFunction();
+@Native<Pointer<Uint8> Function(Pointer<JSContext>, Pointer<IntPtr>, Pointer<JSValue>)>(symbol: 'jsGetArrayBuffer')
+external Pointer<Uint8> jsGetArrayBuffer(Pointer<JSContext> ctx, Pointer<IntPtr> psize, Pointer<JSValue> val);
 
 /// int32_t jsIsFunction(JSContext *ctx, JSValueConst *val)
-final int Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> val,
-) jsIsFunction = _qjsLib
-    .lookup<
-        NativeFunction<
-            Int32 Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsIsFunction')
-    .asFunction();
+@Native<Int32 Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsIsFunction')
+external int jsIsFunction(Pointer<JSContext> ctx, Pointer<JSValue> val);
 
 /// int32_t jsIsPromise(JSContext *ctx, JSValueConst *val)
-final int Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> val,
-) jsIsPromise = _qjsLib
-    .lookup<
-        NativeFunction<
-            Int32 Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsIsPromise')
-    .asFunction();
+@Native<Int32 Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsIsPromise')
+external int jsIsPromise(Pointer<JSContext> ctx, Pointer<JSValue> val);
 
 /// int32_t jsIsArray(JSContext *ctx, JSValueConst *val)
-final int Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> val,
-) jsIsArray = _qjsLib
-    .lookup<
-        NativeFunction<
-            Int32 Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsIsArray')
-    .asFunction();
+@Native<Int32 Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsIsArray')
+external int jsIsArray(Pointer<JSContext> ctx, Pointer<JSValue> val);
 
 /// DLLEXPORT int32_t jsIsError(JSContext *ctx, JSValueConst *val);
-final int Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> val,
-) jsIsError = _qjsLib
-    .lookup<
-        NativeFunction<
-            Int32 Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsIsError')
-    .asFunction();
+@Native<Int32 Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsIsError')
+external int jsIsError(Pointer<JSContext> ctx, Pointer<JSValue> val);
 
 /// DLLEXPORT JSValue *jsNewError(JSContext *ctx);
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-) jsNewError = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-            )>>('jsNewError')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>)>(symbol: 'jsNewError')
+external Pointer<JSValue> jsNewError(Pointer<JSContext> ctx);
 
 /// JSValue *jsGetProperty(JSContext *ctx, JSValueConst *this_obj,
 ///                           JSAtom prop)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> thisObj,
-  int prop,
-) jsGetProperty = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-              Uint32,
-            )>>('jsGetProperty')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Pointer<JSValue>, Uint32)>(symbol: 'jsGetProperty')
+external Pointer<JSValue> jsGetProperty(Pointer<JSContext> ctx, Pointer<JSValue> thisObj, int prop);
 
 /// int jsDefinePropertyValue(JSContext *ctx, JSValueConst *this_obj,
 ///                           JSAtom prop, JSValue *val, int flags)
-final int Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> thisObj,
-  int prop,
-  Pointer<JSValue> val,
-  int flag,
-) jsDefinePropertyValue = _qjsLib
-    .lookup<
-        NativeFunction<
-            Int32 Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-              Uint32,
-              Pointer<JSValue>,
-              Int32,
-            )>>('jsDefinePropertyValue')
-    .asFunction();
+@Native<Int32 Function(Pointer<JSContext>, Pointer<JSValue>, Uint32, Pointer<JSValue>, Int32)>(symbol: 'jsDefinePropertyValue')
+external int jsDefinePropertyValue(Pointer<JSContext> ctx, Pointer<JSValue> thisObj, int prop, Pointer<JSValue> val, int flag);
 
 /// void jsFreeAtom(JSContext *ctx, JSAtom v)
-final void Function(
-  Pointer<JSContext> ctx,
-  int v,
-) jsFreeAtom = _qjsLib
-    .lookup<
-        NativeFunction<
-            Void Function(
-              Pointer<JSContext>,
-              Uint32,
-            )>>('jsFreeAtom')
-    .asFunction();
+@Native<Void Function(Pointer<JSContext>, Uint32)>(symbol: 'jsFreeAtom')
+external void jsFreeAtom(Pointer<JSContext> ctx, int v);
 
 /// JSAtom jsValueToAtom(JSContext *ctx, JSValueConst *val)
-final int Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> val,
-) jsValueToAtom = _qjsLib
-    .lookup<
-        NativeFunction<
-            Uint32 Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsValueToAtom')
-    .asFunction();
+@Native<Uint32 Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsValueToAtom')
+external int jsValueToAtom(Pointer<JSContext> ctx, Pointer<JSValue> val);
 
 /// JSValue *jsAtomToValue(JSContext *ctx, JSAtom val)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  int val,
-) jsAtomToValue = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Uint32,
-            )>>('jsAtomToValue')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Uint32)>(symbol: 'jsAtomToValue')
+external Pointer<JSValue> jsAtomToValue(Pointer<JSContext> ctx, int val);
 
 /// int jsGetOwnPropertyNames(JSContext *ctx, JSPropertyEnum **ptab,
 ///                           uint32_t *plen, JSValueConst *obj, int flags)
-final int Function(
-  Pointer<JSContext> ctx,
-  Pointer<Pointer<JSPropertyEnum>> ptab,
-  Pointer<Uint32> plen,
-  Pointer<JSValue> obj,
-  int flags,
-) jsGetOwnPropertyNames = _qjsLib
-    .lookup<
-        NativeFunction<
-            Int32 Function(
-              Pointer<JSContext>,
-              Pointer<Pointer<JSPropertyEnum>>,
-              Pointer<Uint32>,
-              Pointer<JSValue>,
-              Int32,
-            )>>('jsGetOwnPropertyNames')
-    .asFunction();
+@Native<Int32 Function(Pointer<JSContext>, Pointer<Pointer<JSPropertyEnum>>, Pointer<Uint32>, Pointer<JSValue>, Int32)>(symbol: 'jsGetOwnPropertyNames')
+external int jsGetOwnPropertyNames(Pointer<JSContext> ctx, Pointer<Pointer<JSPropertyEnum>> ptab, Pointer<Uint32> plen, Pointer<JSValue> obj, int flags);
 
 /// JSAtom jsPropertyEnumGetAtom(JSPropertyEnum *ptab, int i)
-final int Function(
-  Pointer<JSPropertyEnum> ptab,
-  int i,
-) jsPropertyEnumGetAtom = _qjsLib
-    .lookup<
-        NativeFunction<
-            Uint32 Function(
-              Pointer<JSPropertyEnum>,
-              Int32,
-            )>>('jsPropertyEnumGetAtom')
-    .asFunction();
+@Native<Uint32 Function(Pointer<JSPropertyEnum>, Int32)>(symbol: 'jsPropertyEnumGetAtom')
+external int jsPropertyEnumGetAtom(Pointer<JSPropertyEnum> ptab, int i);
 
 /// uint32_t sizeOfJSValue()
-final int Function() _sizeOfJSValue = _qjsLib
-    .lookup<NativeFunction<Uint32 Function()>>('sizeOfJSValue')
-    .asFunction();
+@Native<Uint32 Function()>(symbol: 'sizeOfJSValue')
+external int _sizeOfJSValue();
 
 final sizeOfJSValue = _sizeOfJSValue();
 
 /// void setJSValueList(JSValue *list, int i, JSValue *val)
-final void Function(
-  Pointer<JSValue> list,
-  int i,
-  Pointer<JSValue> val,
-) setJSValueList = _qjsLib
-    .lookup<
-        NativeFunction<
-            Void Function(
-              Pointer<JSValue>,
-              Uint32,
-              Pointer<JSValue>,
-            )>>('setJSValueList')
-    .asFunction();
+@Native<Void Function(Pointer<JSValue>, Uint32, Pointer<JSValue>)>(symbol: 'setJSValueList')
+external void setJSValueList(Pointer<JSValue> list, int i, Pointer<JSValue> val);
 
 /// JSValue *jsCall(JSContext *ctx, JSValueConst *func_obj, JSValueConst *this_obj,
 ///                 int argc, JSValueConst *argv)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> funcObj,
-  Pointer<JSValue> thisObj,
-  int argc,
-  Pointer<JSValue> argv,
-) _jsCall = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-              Pointer<JSValue>,
-              Int32,
-              Pointer<JSValue>,
-            )>>('jsCall')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Pointer<JSValue>, Pointer<JSValue>, Int32, Pointer<JSValue>)>(symbol: 'jsCall')
+external Pointer<JSValue> _jsCall(Pointer<JSContext> ctx, Pointer<JSValue> funcObj, Pointer<JSValue> thisObj, int argc, Pointer<JSValue> argv);
 
 Pointer<JSValue> jsCall(
   Pointer<JSContext> ctx,
@@ -940,15 +495,15 @@ Pointer<JSValue> jsCall(
   List<Pointer<JSValue>> argv,
 ) {
   final jsArgs = calloc<Uint8>(
-    argv.length > 0 ? sizeOfJSValue * argv.length : 1,
+    argv.isNotEmpty ? sizeOfJSValue * argv.length : 1,
   ).cast<JSValue>();
   for (int i = 0; i < argv.length; ++i) {
     Pointer<JSValue> jsArg = argv[i];
     setJSValueList(jsArgs, i, jsArg);
   }
   final func1 = jsDupValue(ctx, funcObj);
-  final _thisObj = thisObj;
-  final jsRet = _jsCall(ctx, funcObj, _thisObj, argv.length, jsArgs);
+  final thisObj0 = thisObj;
+  final jsRet = _jsCall(ctx, funcObj, thisObj0, argv.length, jsArgs);
   jsFreeValue(ctx, func1);
   malloc.free(jsArgs);
   runtimeOpaques[jsGetRuntime(ctx)]?._port.sendPort.send(#call);
@@ -956,60 +511,21 @@ Pointer<JSValue> jsCall(
 }
 
 /// int jsIsException(JSValueConst *val)
-final int Function(
-  Pointer<JSValue> val,
-) jsIsException = _qjsLib
-    .lookup<
-        NativeFunction<
-            Int32 Function(
-              Pointer<JSValue>,
-            )>>('jsIsException')
-    .asFunction();
+@Native<Int32 Function(Pointer<JSValue>)>(symbol: 'jsIsException')
+external int jsIsException(Pointer<JSValue> val);
 
 /// JSValue *jsGetException(JSContext *ctx)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-) jsGetException = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-            )>>('jsGetException')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>)>(symbol: 'jsGetException')
+external Pointer<JSValue> jsGetException(Pointer<JSContext> ctx);
 
 /// int jsExecutePendingJob(JSRuntime *rt)
-final int Function(
-  Pointer<JSRuntime> ctx,
-) jsExecutePendingJob = _qjsLib
-    .lookup<
-        NativeFunction<
-            Int32 Function(
-              Pointer<JSRuntime>,
-            )>>('jsExecutePendingJob')
-    .asFunction();
+@Native<Int32 Function(Pointer<JSRuntime>)>(symbol: 'jsExecutePendingJob')
+external int jsExecutePendingJob(Pointer<JSRuntime> ctx);
 
 /// JSValue *jsNewPromiseCapability(JSContext *ctx, JSValue *resolving_funcs)
-final Pointer<JSValue> Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSValue> resolvingFuncs,
-) jsNewPromiseCapability = _qjsLib
-    .lookup<
-        NativeFunction<
-            Pointer<JSValue> Function(
-              Pointer<JSContext>,
-              Pointer<JSValue>,
-            )>>('jsNewPromiseCapability')
-    .asFunction();
+@Native<Pointer<JSValue> Function(Pointer<JSContext>, Pointer<JSValue>)>(symbol: 'jsNewPromiseCapability')
+external Pointer<JSValue> jsNewPromiseCapability(Pointer<JSContext> ctx, Pointer<JSValue> resolvingFuncs);
 
 /// void jsFree(JSContext *ctx, void *ptab)
-final void Function(
-  Pointer<JSContext> ctx,
-  Pointer<JSPropertyEnum> ptab,
-) jsFree = _qjsLib
-    .lookup<
-        NativeFunction<
-            Void Function(
-              Pointer<JSContext>,
-              Pointer<JSPropertyEnum>,
-            )>>('jsFree')
-    .asFunction();
+@Native<Void Function(Pointer<JSContext>, Pointer<JSPropertyEnum>)>(symbol: 'jsFree')
+external void jsFree(Pointer<JSContext> ctx, Pointer<JSPropertyEnum> ptab);

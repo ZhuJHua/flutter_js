@@ -90,7 +90,7 @@ Pointer<JSValue> _dartToJs(Pointer<JSContext> ctx, dynamic val,
     });
     return ret;
   }
-  if (cache == null) cache = Map();
+  cache ??= <dynamic, Pointer<JSValue>>{};
   if (val is bool) return jsNewBool(ctx, val ? 1 : 0);
   if (val is int) return jsNewInt64(ctx, val);
   if (val is double) return jsNewFloat64(ctx, val);
@@ -142,7 +142,7 @@ Pointer<JSValue> _dartToJs(Pointer<JSContext> ctx, dynamic val,
 
 dynamic _jsToDart(Pointer<JSContext> ctx, Pointer<JSValue> val,
     {Map<int, dynamic>? cache}) {
-  if (cache == null) cache = Map();
+  cache ??= <int, dynamic>{};
   final tag = jsValueGetTag(val);
   if (jsTagIsFloat64(tag) != 0) {
     return jsToFloat64(ctx, val);
@@ -151,8 +151,13 @@ dynamic _jsToDart(Pointer<JSContext> ctx, Pointer<JSValue> val,
     case JSTag.BOOL:
       return jsToBool(ctx, val) != 0;
     case JSTag.INT:
+    case JSTag.SHORT_BIG_INT:
+    case JSTag.BIG_INT:
       return jsToInt64(ctx, val);
     case JSTag.STRING:
+    // quickjs-ng represents lazily-concatenated strings with their own tag; JS_ToCString
+    // flattens them, so they convert exactly like a plain string.
+    case JSTag.STRING_ROPE:
       return jsToCString(ctx, val);
     case JSTag.OBJECT:
       final rt = jsGetRuntime(ctx);
@@ -227,7 +232,7 @@ dynamic _jsToDart(Pointer<JSContext> ctx, Pointer<JSValue> val,
         }
         final len = plen.value;
         malloc.free(plen);
-        final ret = Map();
+        final ret = {};
         cache[valptr] = ret;
         for (var i = 0; i < len; ++i) {
           final jsAtom = jsPropertyEnumGetAtom(ptab.value, i);

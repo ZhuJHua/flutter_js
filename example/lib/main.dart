@@ -40,7 +40,7 @@ class _FlutterJsHomeScreenState extends State<FlutterJsHomeScreen> {
   final JavascriptRuntime javascriptRuntime =
       getJavascriptRuntime(forceJavascriptCoreOnAndroid: false);
 
-  String? _quickjsVersion;
+  String? _fetchResult;
 
   Future<String> evalJS() async {
     JsEvalResult jsResult = await javascriptRuntime.evaluateAsync(
@@ -78,9 +78,19 @@ class _FlutterJsHomeScreenState extends State<FlutterJsHomeScreen> {
     return asyncResult.stringResult;
   }
 
+  /// Reported by the natively linked library, so it cannot drift from what is actually built.
+  late final String _engineVersion = () {
+    try {
+      return quickJsVersion;
+    } catch (_) {
+      return 'unavailable';
+    }
+  }();
+
   @override
   void initState() {
     super.initState();
+    debugPrint('flutter_js example: bundled quickjs-ng $_engineVersion');
     javascriptRuntime.setInspectable(true);
     javascriptRuntime.onMessage('getDataAsync', (args) async {
       await Future.delayed(const Duration(seconds: 1));
@@ -157,11 +167,15 @@ class _FlutterJsHomeScreenState extends State<FlutterJsHomeScreen> {
                 final promiseResolved =
                     await javascriptRuntime.handlePromise(asyncResult);
                 var result = promiseResolved.stringResult;
-                setState(() => _quickjsVersion = result);
+                setState(() => _fetchResult = result);
               },
             ),
             Text(
-              'QuickJS Version\n${_quickjsVersion ?? '<NULL>'}',
+              'Fetch result\n${_fetchResult ?? '<NULL>'}',
+              textAlign: TextAlign.center,
+            ),
+            Text(
+              'Bundled QuickJS: $_engineVersion',
               textAlign: TextAlign.center,
             )
           ],

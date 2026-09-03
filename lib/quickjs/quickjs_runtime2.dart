@@ -11,7 +11,7 @@ import 'package:flutter_js/flutter_js.dart';
 
 import 'ffi.dart';
 
-export 'ffi.dart' show JSEvalFlag, JSRef;
+export 'ffi.dart' show JSEvalFlag, JSRef, JSTag, quickJsVersion;
 
 part './isolate.dart';
 part './object.dart';
@@ -53,10 +53,10 @@ class QuickJsRuntime2 extends JavascriptRuntime {
     this.memoryLimit,
     this.hostPromiseRejectionHandler,
   }) {
-    this.init();
+    init();
   }
 
-  _ensureEngine() {
+  void _ensureEngine() {
     if (_rt != null) return;
     final rt = jsNewRuntime((ctx, type, ptr) {
       try {
@@ -134,7 +134,7 @@ class QuickJsRuntime2 extends JavascriptRuntime {
   }
 
   /// Free Runtime and Context which can be recreate when evaluate again.
-  close() {
+  void close() {
     final rt = _rt;
     final ctx = _ctx;
     _rt = null;
@@ -178,6 +178,7 @@ class QuickJsRuntime2 extends JavascriptRuntime {
   }
 
   /// Evaluate js script.
+  @override
   JsEvalResult evaluate(
     String command, {
     String? name,
@@ -230,13 +231,13 @@ class QuickJsRuntime2 extends JavascriptRuntime {
 
   @override
   int executePendingJob() {
-    this.dispatch();
+    dispatch();
     return 0;
   }
 
   @override
   String getEngineInstanceId() {
-    return this.hashCode.toString();
+    return hashCode.toString();
   }
 
   @override

@@ -23,7 +23,7 @@ import 'package:http/http.dart' as http;
 // ignore: non_constant_identifier_names
 var _XHR_DEBUG = false;
 
-setXhrDebug(bool value) => _XHR_DEBUG = value;
+bool setXhrDebug(bool value) => _XHR_DEBUG = value;
 
 const HTTP_GET = "get";
 const HTTP_POST = "post";
@@ -42,8 +42,9 @@ String _debugSendNativeCallback() {
       console.log(responseInfo);
       console.log(responseText);
       console.log(error);""";
-  } else
+  } else {
     return "";
+  }
 }
 
 final String xhrJsCode = """
@@ -241,7 +242,7 @@ const XHR_PENDING_CALLS_KEY = "xhrPendingCalls";
 
 http.Client? httpClient;
 
-xhrSetHttpClient(http.Client client) {
+void xhrSetHttpClient(http.Client client) {
   httpClient = client;
 }
 
@@ -250,7 +251,7 @@ extension JavascriptRuntimeXhrExtension on JavascriptRuntime {
     return dartContext[XHR_PENDING_CALLS_KEY];
   }
 
-  bool hasPendingXhrCalls() => getPendingXhrCalls()!.length > 0;
+  bool hasPendingXhrCalls() => getPendingXhrCalls()!.isNotEmpty;
   void clearXhrPendingCalls() {
     dartContext[XHR_PENDING_CALLS_KEY] = [];
   }
@@ -338,13 +339,13 @@ extension JavascriptRuntimeXhrExtension on JavascriptRuntime {
         final error = xhrResult.error;
         // send back to the javascript environment the
         // response for the http pending callback
-        this.evaluate(
+        evaluate(
           "globalThis.xhrRequests[${pendingCall.idRequest}].callback($responseInfo, `$responseText`, $error);",
         );
       });
     });
 
-    final evalXhrSendNative = this.evaluate("""
+    final evalXhrSendNative = evaluate("""
     var xhrRequests = {};
     var idRequest = -1;
     function XMLHttpRequestExtension_send_native() {
@@ -366,12 +367,12 @@ extension JavascriptRuntimeXhrExtension on JavascriptRuntime {
     }
     """);
 
-    final evalXhrResult = this.evaluate(xhrJsCode);
+    final evalXhrResult = evaluate(xhrJsCode);
     localContext['enableXhr'] = evalXhrResult.rawResult;
     localContext['xhrSendNative'] = evalXhrSendNative.rawResult;
     if (_XHR_DEBUG) print('RESULT evalXhrResult: $evalXhrResult');
 
-    this.onMessage('SendNative', (arguments) {
+    onMessage('SendNative', (arguments) {
       try {
         String? method = arguments[0];
         String? url = arguments[1];

@@ -78,7 +78,7 @@ abstract class JavascriptRuntime {
 
   void dispose();
 
-  static Map<String, Map<String, Function(dynamic arg)>>
+  static final Map<String, Map<String, Function(dynamic arg)>>
       _channelFunctionsRegistered = {};
 
   static Map<String, Map<String, Function(dynamic arg)>>
@@ -113,7 +113,7 @@ abstract class JavascriptRuntime {
       }
     }""");
     onMessage('ConsoleLog', (dynamic args) {
-      args..removeAt(0);
+      args.removeAt(0);
       String output = args.join(' ');
       print(output);
     });
@@ -160,7 +160,7 @@ abstract class JavascriptRuntime {
     });
   }
 
-  sendMessage({
+  void sendMessage({
     required String channelName,
     required List<String> args,
     String? uuid,
@@ -174,7 +174,7 @@ abstract class JavascriptRuntime {
     }
   }
 
-  onMessage(String channelName, dynamic Function(dynamic args) fn) {
+  void onMessage(String channelName, dynamic Function(dynamic args) fn) {
     setupBridge(channelName, fn);
   }
 

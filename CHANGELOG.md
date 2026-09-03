@@ -1,3 +1,50 @@
+# 0.9.0
+
+**Breaking.** Modernizes the plugin against Flutter 3.47 / Dart 3.13 and rebuilds how the
+native engine is delivered.
+
+### QuickJS upgraded to quickjs-ng 0.16.2 (from QuickJS 2021-03-27)
+
+- The engine is now compiled from source vendored in `src/quickjs/`. The prebuilt
+  `libquickjs_c_bridge_plugin.so` / `quickjs_c_bridge.dll` binaries and the
+  `com.github.fast-development.android-js-runtimes` jitpack AAR are gone.
+- Building happens in `hook/build.dart` via `package:hooks` + `package:native_toolchain_c`, so
+  the library ships as a Dart **code asset**. No CMake, gradle `externalNativeBuild`, or
+  checked-in binaries are involved.
+- Brings ES2022-ES2024 to the QuickJS platforms: `Array.prototype.toSorted`, `findLast`,
+  `Object.groupBy`, `String.prototype.at`, and much faster regexp/number handling.
+- BigFloat and BigDecimal are removed upstream and are no longer available.
+- `JSTag` constants were renumbered to match quickjs-ng: `FLOAT64` is now `8` (was `7`),
+  `BIG_INT` is `-9`, `STRING_ROPE` (`-6`) and `SHORT_BIG_INT` (`7`) are new, and
+  `BIG_FLOAT`/`BIG_DECIMAL` are gone. Code that hardcoded these values must be updated.
+- New `quickJsVersion` getter reports the version of the linked engine.
+
+### iOS and macOS migrated to Swift Package Manager
+
+- Adds `ios/flutter_js/Package.swift` and `macos/flutter_js/Package.swift`; sources moved from
+  `ios/Classes/` and `macos/Classes/` to `<platform>/flutter_js/Sources/flutter_js/`.
+- The CocoaPods podspecs are kept and point at the same sources, so apps that have not migrated
+  keep working.
+- The Objective-C `FlutterJsPlugin` shim was removed (SwiftPM does not support mixed-language
+  targets); the Swift `SwiftFlutterJsPlugin` was renamed to `FlutterJsPlugin`. `pluginClass` is
+  unchanged, so this is invisible from Dart.
+
+### Android migrated to built-in Kotlin
+
+- `android/build.gradle` became `build.gradle.kts` and no longer applies `kotlin-android`.
+  Requires AGP 9, Kotlin 2.4, Gradle 9.3.
+
+### Other breaking changes
+
+- Minimum Flutter 3.47 / Dart 3.13.
+- Android `minSdk` 21 -> 24, `compileSdk` 34 -> 36, Java 8 -> 17.
+- iOS 8.0 -> 15.0, macOS 10.11 -> 12.0.
+- Removed `QuickJsRuntime` (the older `JSEvalWrapper`-based runtime) and `QuickJsService` /
+  the oasis-jsbridge sync server. Both were unreachable from `getJavascriptRuntime()` and
+  depended on native entry points that are no longer built. Use `QuickJsRuntime2`.
+- Linux and Windows are no longer declared as plugin platforms. They never had platform code
+  beyond bundling the prebuilt library, which the code asset now handles.
+
 # 0.8.7
 Fix performance issue in toUTF8 method
 

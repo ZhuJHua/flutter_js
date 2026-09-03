@@ -8,14 +8,26 @@ In the previous versions we only get the result of evaluated expressions as Stri
 
 With flutter_js Flutter applications can take advantage of great javascript libraries such as ajv (json schema validation), moment (DateTime parser and operations) running natively (no PlatformChannels needed) on mobile devices, both Android and iOS.
 
-On IOS this library relies on the native JavascriptCore provided by iOS SDK. In Android it uses the amazing and small Javascript Engine QuickJS [https://bellard.org/quickjs/](https://bellard.org/quickjs/) (A spetacular work of the Fabrice Bellard and Charlie Gordon).
+On iOS this library relies on the native JavascriptCore provided by the iOS SDK. On Android, Windows and Linux it uses [quickjs-ng](https://github.com/quickjs-ng/quickjs), the actively maintained fork of Fabrice Bellard and Charlie Gordon's QuickJS, compiled from source that is vendored in this repository (see [How the native QuickJS library is built](#how-the-native-quickjs-library-is-built)).
 
 To debug JS code on iOS you need to set `javascriptRuntime.setInspectable(true);` and pass sourceUrl to `evaluate` (example: sourceUrl: 'script.js').
 
-On Android you could use JavascriptCore as well You just need add an Android dependency `implementation "com.github.fast-development.android-js-runtimes:fastdev-jsruntimes-jsc:0.3.4"` and pass `forceJavascriptCoreOnAndroid: true` to the function `getJavascriptRuntime`. 
+On Android you can use JavaScriptCore instead: add the Android dependency `implementation("com.github.fast-development.android-js-runtimes:fastdev-jsruntimes-jsc:0.3.6")` (from jitpack) and pass `forceJavascriptCoreOnAndroid: true` to `getJavascriptRuntime`. That dependency only supplies JavaScriptCore; QuickJS itself is always built from source by this package.
 
 
-On MacOS the JavascriptCore, provided by the OSX is used. In Windows and Linux the engine used is the QuickJS. In the 0.4.0 version we borrowed the dart ffi source code from the flutter_qjs lib. `flutter_qjs` is a amazing package and they made a excelent work in build a good ffi bridge between Dart and JS, also doing the quickjs source code changes to allow it to run on WIndows. But, flutter_js take the approach to use JavascriptCore on IOS (mainly) to avoid refusals on the Apple Store, which state that `Apps may contain or run code that is not embedded in the binary (e.g. HTML5-based games, bots, etc.), as long as code distribution isn’t the main purpose of the app`. It also says `your app must use WebKit and JavaScript Core to run third-party software and should not attempt to extend or expose native platform APIs to third-party software;` Reference: https://developer.apple.com/app-store/review/guidelines/ [ Session  4.7]. So, we avoid to use quickjs in IOS apps, so flutter_js provides an abstraction called JavascriptRuntime which runs using JavascriptCore on Apple devices and Desktop and QuickJS in Android, Windows and Linux.
+On macOS the system JavaScriptCore is used. On Windows and Linux the engine is QuickJS. The
+`dart:ffi` bindings for QuickJS were originally borrowed from
+[flutter_qjs](https://pub.dev/packages/flutter_qjs) in 0.4.0 — an excellent package that did the
+hard work of building a good Dart<->JS ffi bridge.
+
+flutter_js differs in deliberately using JavaScriptCore on iOS, to avoid App Store review
+problems. The guidelines allow that `Apps may contain or run code that is not embedded in the
+binary (e.g. HTML5-based games, bots, etc.), as long as code distribution isn't the main purpose
+of the app`, but also state `your app must use WebKit and JavaScript Core to run third-party
+software and should not attempt to extend or expose native platform APIs to third-party
+software` ([guidelines](https://developer.apple.com/app-store/review/guidelines/), section 4.7).
+So `JavascriptRuntime` is an abstraction that runs on JavaScriptCore on Apple platforms and
+QuickJS on Android, Windows and Linux.
 
 FLutterJS allows to use Javascript to execute validations logic of TextFormField, also we can execute rule engines or redux logic shared from our web applications. The opportunities are huge.
 
@@ -38,55 +50,49 @@ Flutter JS on Desktop
 
 ## Features:
 
-## Instalation
+## Installation
 
 ```yaml
 dependencies:
-  flutter_js: 0.1.0+0
+  flutter_js: ^0.9.0
 ```
+
+Requires Flutter 3.47 / Dart 3.13 or newer.
+
+On the QuickJS platforms (Android, Windows, Linux) the engine is compiled from the sources
+vendored in `src/` by a Dart [build hook](https://dart.dev/tools/hooks) the first time you build.
+Nothing to configure; you just need a working host C toolchain (Xcode command line tools, the
+Android NDK that Flutter already requires, Visual Studio's C++ workload, or gcc/clang).
 
 ### iOS
 
-Since flutter_js uses the native JavascriptCore, no action is needed.
+Uses the system JavaScriptCore; no action needed. Minimum deployment target is iOS 15.
+
+### macOS
+
+Uses the system JavaScriptCore; no action needed. Minimum deployment target is macOS 12.
 
 ### Android
 
-Change the minimum Android sdk version to 21 (or higher) in your `android/app/build.gradle` file.
+Set the minimum Android sdk version to 24 (or higher) in your `android/app/build.gradle.kts`:
 
-```
-minSdkVersion 21
+```kotlin
+minSdk = 24
 ```
 
 ## Release Deploy
 
 ### Android
 
-Setup of proguard to release builds: setup your android/app/proguard-rules.pro file 
-with the content bellow.
+No plugin-specific configuration is required. The JavaScript engine is native code reached through
+`dart:ffi`, so R8/proguard has nothing to strip on its behalf.
 
-> Remember to merge with another configurations needed for 
-others plugins your app uses.
+If you enable minification for other reasons, the standard Flutter keep rules are enough:
 
 ```proguard-rules.pro
-#Flutter Wrapper
--keep class io.flutter.app.** { *; }
--keep class io.flutter.plugin.**  { *; }
--keep class io.flutter.util.**  { *; }
--keep class io.flutter.view.**  { *; }
 -keep class io.flutter.**  { *; }
 -keep class io.flutter.plugins.**  { *; }
--keep class de.prosiebensat1digital.** { *; }
-``` 
-
-Also add these lines to your `android -> buildTypes -> release` section of android/app/build.gradle file:
-
-```gradle
- minifyEnabled true
-  useProguard true
-
-  proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
 ```
- 
 
 ## Examples
 
@@ -300,57 +306,44 @@ To enable http calls, add this to your files:
 ```
 
 
-## Windows and Linux
+## How the native QuickJS library is built
 
-The C wrapper library is hosted on this github repository: https://github.com/abner/quickjs-c-bridge 
+Everything needed to build the engine lives in this repository:
 
-We just separated the code to allow build it and in this repository we have only the released shared library, so each application using the flutter_js does not need to keep recompiling it all the time
+| Path | What it is |
+| --- | --- |
+| `src/quickjs/` | [quickjs-ng](https://github.com/quickjs-ng/quickjs) 0.16.2, vendored verbatim |
+| `src/quickjs_dart_bridge.c` | The C ABI that `dart:ffi` binds to |
+| `hook/build.dart` | Compiles both into one **code asset** with `package:native_toolchain_c` |
 
-## QuickJs Android shared libraries
+The build hook runs automatically on `flutter run`, `flutter build`, and `flutter test`, for every
+target platform. There are no checked-in `.so`/`.dll` binaries and no jitpack dependency; earlier
+versions of this package used both.
 
-The library wrapper, both QuickJS and JavascriptCore, are also compiled in a separated repository: https://github.com/fast-development/android-js-runtimes
+To move to a newer upstream release:
 
-With the library being compiled and published to jitpack, applications using the wrappers, through flutter_js does not need to compile the shared library using Android NDK.
+```bash
+tool/update_quickjs.sh v0.16.3
+flutter test
+```
+
+Then check that `JSTag` in `lib/quickjs/ffi.dart` still matches the tag enum in
+`src/quickjs/quickjs.h` — quickjs-ng has renumbered it before.
 
 
 ## Unit Testing javascript evaluation
 
-We can unit test evaluation of expressions on flutter_js using the desktop platforms (windows, linux and macos).
+Just run `flutter test`. The build hook compiles the engine for the host before the tests run and
+`dart:ffi` resolves it from the code asset, so no environment variables, prebuilt paths, or
+`.vscode/launch.json` entries are needed on any platform. (Versions before 0.9.0 required
+`LIBQUICKJSC_TEST_PATH` on Linux and a `PATH` entry on Windows; both are gone.)
 
-For `Windows` and `Linux` you need to build your app Desktop executable first: `flutter build -d windows` or `flutter build -d linux`.
+Note that `getJavascriptRuntime()` selects JavaScriptCore on macOS hosts. To exercise QuickJS in a
+test, construct it directly:
 
-On Windows, after build your application for the first time, at least, add the path `build\windows\runner\Debug` (the absolute path) to your environment path.
-
-In powershell, just run `$env:path += ";${pwd}\build\windows\runner\Debug"`. Now you can run the test in the command line session where you added the `\build\windows\runner\Debug` into the path.
-
-For `Linux` you need to exports an environment variable called `LIBQUICKJSC_TEST_PATH` pointing to `build/linux/debug/bundle/lib/libquickjs_c_bridge_plugin.so`. eg: `export LIBQUICKJSC_TEST_PATH="$PWD/build/linux/debug/bundle/lib/libquickjs_c_bridge_plugin.so"`
-
-
-To run the test integrated Visual Studio Code, you will need to setup a launcher to the `.vscode/launch.json` file,
-so you can fill-in the build folder into the `PATH` on Windows and the `LIBQUICKJSC_TEST_PATH` for linux:
-
-```json
-{
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "test-with-flutterjs",
-            "type": "dart",
-            "program": "test/flutter_js_test.dart",
-            "windows": {
-                "env": {
-                    "PATH": "${env:Path};${workspaceFolder}\\example\\build\\windows\\runner\\Debug"
-                }
-            },
-            "linux": {
-                "env": {
-                    "LIBQUICKJSC_TEST_PATH": "${workspaceFolder}/example/build/linux/debug/bundle/lib/libquickjs_c_bridge_plugin.so"
-                }
-            },
-            "request": "launch"
-        }
-    ]
-}
+```dart
+final runtime = QuickJsRuntime2();
+expect(runtime.evaluate('Math.pow(5,3)').stringResult, '125');
 ```
 
-> For running unit tests on MacOSx no extra steps are needed.
+See `test/quickjs_test.dart`.

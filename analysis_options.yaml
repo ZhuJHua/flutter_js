@@ -1,0 +1,23 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - src/quickjs/**
+    - example/**
+    - build/**
+    - android/**
+    - ios/**
+    - windows/**
+    - macos/**
+    - linux/**
+
+linter:
+  rules:
+    # The QuickJS FFI layer mirrors C naming and uses SCREAMING_CASE constants.
+    constant_identifier_names: false
+    # The JavaScriptCore bindings deliberately mirror the C header names.
+    library_prefixes: false
+    # The engines log diagnostics through print(); there is no logger dependency.
+    avoid_print: false
+    # The QuickJS wrapper exposes private handle types by design.
+    library_private_types_in_public_api: false
